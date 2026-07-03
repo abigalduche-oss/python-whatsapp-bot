@@ -3,8 +3,20 @@ from flask import current_app, jsonify
 import json
 import requests
 
-# from app.services.openai_service import generate_response
+from app.services.openai_service import generate_response
 import re
+
+
+def get_recipient_waids():
+    recipients = current_app.config.get("RECIPIENT_WAIDS") or []
+    if isinstance(recipients, str):
+        recipients = [recipients]
+    return [r for r in recipients if r]
+
+
+def get_default_recipient():
+    recipients = get_recipient_waids()
+    return recipients[0] if recipients else None
 
 
 def log_http_response(response):
@@ -25,9 +37,9 @@ def get_text_message_input(recipient, text):
     )
 
 
-def generate_response(response):
-    # Return text in uppercase
-    return response.upper()
+# def generate_response(response):
+#     # Return text in uppercase
+#     return response.upper()
 
 
 def send_message(data):
@@ -50,6 +62,18 @@ def send_message(data):
         requests.RequestException
     ) as e:  # This will catch any general request exception
         logging.error(f"Request failed due to: {e}")
+        # If the exception has a response, log its details for easier debugging
+        try:
+            resp = e.response
+            if resp is not None:
+                log_http_response(resp)
+                try:
+                    return jsonify({"status": "error", "message": resp.text}), resp.status_code
+                except Exception:
+                    return jsonify({"status": "error", "message": "Failed to send message"}), 500
+        except Exception:
+            # Fallback when e.response isn't available or logging fails
+            pass
         return jsonify({"status": "error", "message": "Failed to send message"}), 500
     else:
         # Process the response as normal
@@ -76,21 +100,63 @@ def process_text_for_whatsapp(text):
 
 
 def process_whatsapp_message(body):
-    wa_id = body["entry"][0]["changes"][0]["value"]["contacts"][0]["wa_id"]
-    name = body["entry"][0]["changes"][0]["value"]["contacts"][0]["profile"]["name"]
+    # Log the raw incoming payload for debugging
+    try:
+        logging.info(f"Incoming webhook payload: {body}")
+    except Exception:
+        pass
 
-    message = body["entry"][0]["changes"][0]["value"]["messages"][0]
-    message_body = message["text"]["body"]
+    entry = body.get("entry", [])[0] if body.get("entry") else {}
+    change = entry.get("changes", [])[0] if entry.get("changes") else {}
+    value = change.get("value", {})
 
-    # TODO: implement custom function here
-    response = generate_response(message_body)
+    contacts = value.get("contacts", [])
+    messages = value.get("messages", [])
 
-    # OpenAI Integration
-    # response = generate_response(message_body, wa_id, name)
-    # response = process_text_for_whatsapp(response)
+    wa_id = None
+    name = None
+    if contacts:
+        contact = contacts[0]
+        wa_id = contact.get("wa_id")
+        profile = contact.get("profile", {})
+        name = profile.get("name")
 
-    data = get_text_message_input(current_app.config["RECIPIENT_WAID"], response)
-    send_message(data)
+    if not messages:
+        logging.info("No messages field in webhook payload; nothing to process.")
+        return
+
+    message = messages[0]
+
+    # Safely extract text body if present
+    text_obj = message.get("text")
+    if text_obj and isinstance(text_obj, dict):
+        message_body = text_obj.get("body", "")
+    else:
+        # Unsupported or non-text message types (e.g., interactive, image, button)
+        logging.info(f"Received non-text or unsupported message type: {message.get('type')}")
+        logging.debug(f"Full message object: {message}")
+        return
+
+    # Generate the assistant response for this sender
+    if wa_id is None:
+        logging.warning("Incoming WhatsApp payload missing wa_id; falling back to default recipient.")
+        wa_id = get_default_recipient()
+        name = name or "Guest"
+
+    response = generate_response(message_body, wa_id, name)
+    response = process_text_for_whatsapp(response)
+
+    recipient = wa_id or get_default_recipient()
+    if recipient is None:
+        logging.error("No recipient WAID available to send the WhatsApp response.")
+        return
+
+    data = get_text_message_input(recipient, response)
+    resp = send_message(data)
+    try:
+        logging.info(f"Sent message response to {recipient}: {resp}")
+    except Exception:
+        pass
 
 
 def is_valid_whatsapp_message(body):
