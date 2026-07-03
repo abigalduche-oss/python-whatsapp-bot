@@ -32,7 +32,7 @@ def create_assistant(file):
         name="CUZ Query Assistant",
         instructions="You're a helpful WhatsApp assistant that can assist students learning Catholic University in Zimbabwe Harare Campus. Use your knowledge base to best respond to customer queries. If you don't know the answer, say simply that you cannot help with question and advice to contact the host directly. Be friendly and professional.",
         tools=[{"type": "retrieval"}],
-        model="gpt-4-1106-preview",
+        model="gpt-5.5",
         file_ids=[file.id],
     )
     return assistant
