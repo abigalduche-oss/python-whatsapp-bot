@@ -2,10 +2,17 @@ import logging
 from flask import current_app, jsonify
 import json
 import requests
+import sys
+import pathlib
 
-from app.services.openai_service import generate_response
+try:
+    from app.services.openai_service import generate_response
+except ModuleNotFoundError:
+    project_root = pathlib.Path(__file__).resolve().parents[2]
+    sys.path.insert(0, str(project_root))
+    from app.services.openai_service import generate_response
+
 import re
-
 
 def get_recipient_waids():
     recipients = current_app.config.get("RECIPIENT_WAIDS") or []

@@ -11,17 +11,33 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+DATA_FILE_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "data", "airbnb-faq.pdf")
+)
+VECTOR_STORE_DB = "vector_store_db"
+VECTOR_STORE_NAME = "CUZ Query Assistant FAQ Vector Store"
+VECTOR_STORE_DESCRIPTION = (
+    "Vector store for Catholic University of Zimbabwe Harare Campus FAQ content used by the WhatsApp assistant."
+)
+
 ASSISTANT_INSTRUCTIONS = (
-    "You're a helpful WhatsApp assistant that can assist students learning Catholic University in Zimbabwe Harare Campus. "
-    "Use your knowledge base to answer customer questions. If you don't know the answer, say that you cannot help and advise them to contact the host directly. Be friendly and proffessional."
+    "You are a WhatsApp help assistant for Catholic University of Zimbabwe, Harare Campus. "
+    "Use the campus FAQ knowledge base to answer student questions as accurately as possible. Otherwise use the information found on the official Catholic Universiity of Zimbabwe website website https://cuz.ac.zw/ to answer questions. "
+    "If the answer is not present in the knowledge base, say you don't know and direct the student to the university help desk. "
+    "Be professional, funny, concise, and friendly."
 )
 
 
 def upload_file(path):
     # Upload a file with an "assistants" purpose
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"FAQ file not found at {path}")
+
     file = client.files.create(
-        file=open("../../data/airbnb-faq.pdf", "rb"), purpose="assistants"
+        file=open(path, "rb"), purpose="assistants"
     )
+
+    return file
 
 
 def create_assistant(file):
@@ -30,9 +46,9 @@ def create_assistant(file):
     """
     assistant = client.beta.assistants.create(
         name="CUZ Query Assistant",
-        instructions="You're a helpful WhatsApp assistant that can assist students learning Catholic University in Zimbabwe Harare Campus. Use your knowledge base to best respond to customer queries. If you don't know the answer, say simply that you cannot help with question and advice to contact the host directly. Be friendly and professional.",
+        instructions="You're a helpful WhatsApp assistant that can assist students learning at Catholic University in Zimbabwe Harare Campus. Use your knowledge base to best respond to customer queries. If you don't know the answer, say simply that you cannot help with question and advice to contact the host directly. Be friendly, funny and professional.",
         tools=[{"type": "retrieval"}],
-        model="gpt-5.5",
+        model="gpt-5.4",
         file_ids=[file.id],
     )
     return assistant
@@ -57,6 +73,39 @@ def get_response_conversation_id(wa_id):
 def store_response_conversation_id(wa_id, conversation_id):
     with shelve.open("responses_db", writeback=True) as responses_shelf:
         responses_shelf[wa_id] = conversation_id
+
+
+def get_cached_vector_store():
+    with shelve.open(VECTOR_STORE_DB, writeback=True) as db:
+        return db.get("vector_store_id"), db.get("file_id")
+
+
+def store_cached_vector_store(vector_store_id, file_id):
+    with shelve.open(VECTOR_STORE_DB, writeback=True) as db:
+        db["vector_store_id"] = vector_store_id
+        db["file_id"] = file_id
+
+
+def ensure_vector_store():
+    vector_store_id, file_id = get_cached_vector_store()
+    if vector_store_id:
+        return vector_store_id
+
+    if not file_id:
+        file = upload_file(DATA_FILE_PATH)
+        file_id = file.id
+
+    vector_store = client.vector_stores.create(
+        file_ids=[file_id],
+        name=VECTOR_STORE_NAME,
+        description=VECTOR_STORE_DESCRIPTION,
+    )
+    store_cached_vector_store(vector_store.id, file_id)
+    return vector_store.id
+
+
+def get_retrieval_tools():
+    return [{"type": "file_search", "vector_store_ids": [ensure_vector_store()]}]
 
 
 def is_valid_assistant_id(assistant_id):
@@ -88,8 +137,9 @@ def run_assistant(thread, name, message_body):
         model="gpt-4.1-mini",
         input=message_body,
         instructions=ASSISTANT_INSTRUCTIONS,
+        tools=get_retrieval_tools(),
         max_output_tokens=512,
-        temperature=0.7,
+        temperature=0,
     )
 
     if getattr(response, "output_text", None) is not None:

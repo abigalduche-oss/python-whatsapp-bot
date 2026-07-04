@@ -26,7 +26,7 @@ def create_vector_store(file_id):
     return client.vector_stores.create(
         file_ids=[file_id],
         name="CUZ Query Assistant FAQ Vector Store",
-        description="Vector store for Catholic University in Zimbabwe Harare Campus FAQ content used by the WhatsApp assistant.",
+        description="Vector store for Catholic University of Zimbabwe Harare Campus FAQ content used by the WhatsApp assistant.",
     )
 
 
@@ -74,8 +74,8 @@ def generate_response(message_body, wa_id, name):
                 model="gpt-4.1-mini",
                 input=message_body,
                 instructions=(
-                    "You're a helpful WhatsApp assistant that can assist students learning Catholic University in Zimbabwe Harare Campus. "
-                    "Use your knowledge base to answer customer questions. If you don't know the answer, say that you cannot help and advise them to contact the host directly. Be friendly and proffessional."
+                    "You're a helpful WhatsApp assistant that can assist students learning Catholic University of Zimbabwe Harare Campus. "
+                    "Use your knowledge base to answer customer questions. If you don't know the answer, say that you cannot help and advise them to contact the host directly. Be friendly, funny and proffessional."
                 ),
                 tools=TOOLS,
                 conversation=conversation_id,
