@@ -1,10 +1,12 @@
 import logging
 from flask import Flask, jsonify
-from app import create_app
 
 # Create the Flask app with error handling so serverless platforms
 # (like Vercel) receive a valid WSGI app even if initialization fails.
 try:
+    # Importing the application factory may raise during module import.
+    from app import create_app
+
     app = create_app()
 except Exception as e:
     logging.exception("Failed to create Flask app")
@@ -23,6 +25,7 @@ except Exception as e:
             ),
             500,
         )
+
 
 if __name__ == "__main__":
     logging.info("Flask app started")
