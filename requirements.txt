@@ -1,4 +1,5 @@
 flask
+app
 python-dotenv
 openai
 aiohttp
