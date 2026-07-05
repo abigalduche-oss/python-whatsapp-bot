@@ -1,12 +1,8 @@
 import logging
 from flask import Flask, jsonify
 
-# Ensure a module-level Flask object exists so static analyzers
-# and serverless platforms (Vercel) can detect an app entrypoint.
-app = Flask(__name__)
-
 # Create the Flask app with error handling so serverless platforms
-# receive a valid WSGI app even if initialization fails.
+# (like Vercel) receive a valid WSGI app even if initialization fails.
 try:
     # Importing the application factory may raise during module import.
     from app import create_app
@@ -14,7 +10,8 @@ try:
     app = create_app()
 except Exception as e:
     logging.exception("Failed to create Flask app")
-    # Use the pre-created fallback `app` and expose the startup error
+    # Fallback app that returns the initialization error for debugging
+    app = Flask(__name__)
 
     @app.route("/")
     def startup_error():
@@ -29,9 +26,6 @@ except Exception as e:
             500,
         )
 
-# Provide alternative well-known entrypoint names for hosting platforms
-application = app
-handler = app
 
 if __name__ == "__main__":
     logging.info("Flask app started")
