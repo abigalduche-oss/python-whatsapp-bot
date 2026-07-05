@@ -5,15 +5,26 @@ from dotenv import load_dotenv
 import os
 import time
 import logging
+import glob
 
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-DATA_FILE_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "data", "airbnb-faq.pdf")
-)
+DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data"))
+DATA_FILE_PATH = os.path.join(DATA_DIR, "airbnb-faq.pdf")
+SUPPORTED_FAQ_GLOBS = ["*.pdf", "*.docx", "*.doc"]
+
+
+def find_faq_file():
+    # Search DATA_DIR for supported FAQ files and return the first match
+    for pattern in SUPPORTED_FAQ_GLOBS:
+        matches = glob.glob(os.path.join(DATA_DIR, pattern))
+        if matches:
+            # prefer the first match
+            return os.path.abspath(matches[0])
+    return None
 VECTOR_STORE_DB = "vector_store_db"
 VECTOR_STORE_NAME = "CUZ Query Assistant FAQ Vector Store"
 VECTOR_STORE_DESCRIPTION = (
@@ -90,22 +101,34 @@ def ensure_vector_store():
     vector_store_id, file_id = get_cached_vector_store()
     if vector_store_id:
         return vector_store_id
+    try:
+        if not file_id:
+            faq_path = find_faq_file()
+            if not faq_path:
+                raise FileNotFoundError(f"No supported FAQ file found in {DATA_DIR}")
+            file = upload_file(faq_path)
+            file_id = file.id
 
-    if not file_id:
-        file = upload_file(DATA_FILE_PATH)
-        file_id = file.id
-
-    vector_store = client.vector_stores.create(
-        file_ids=[file_id],
-        name=VECTOR_STORE_NAME,
-        description=VECTOR_STORE_DESCRIPTION,
-    )
-    store_cached_vector_store(vector_store.id, file_id)
-    return vector_store.id
+        vector_store = client.vector_stores.create(
+            file_ids=[file_id],
+            name=VECTOR_STORE_NAME,
+            description=VECTOR_STORE_DESCRIPTION,
+        )
+        store_cached_vector_store(vector_store.id, file_id)
+        return vector_store.id
+    except FileNotFoundError as e:
+        logging.warning(str(e) + "; skipping vector store setup.")
+        return None
+    except Exception as e:
+        logging.exception("Failed to create or retrieve vector store; proceeding without retrieval tools: %s", e)
+        return None
 
 
 def get_retrieval_tools():
-    return [{"type": "file_search", "vector_store_ids": [ensure_vector_store()]}]
+    vector_store_id = ensure_vector_store()
+    if not vector_store_id:
+        return []
+    return [{"type": "file_search", "vector_store_ids": [vector_store_id]}]
 
 
 def is_valid_assistant_id(assistant_id):
